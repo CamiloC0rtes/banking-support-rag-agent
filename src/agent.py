@@ -40,7 +40,7 @@ llm_client = ChatOpenAI(model=os.getenv("CHAT_MODEL_NAME", "gpt-4o-mini"))
 
 # Minimum relevance (0..1) for a chunk to count as grounding when no domain
 # keyword matched. Calibrate with `python -m tests.eval.run_eval`.
-RELEVANCE_THRESHOLD = float(os.getenv("RELEVANCE_THRESHOLD", "0.30"))
+RELEVANCE_THRESHOLD = float(os.getenv("RELEVANCE_THRESHOLD", "0.15"))
 HISTORY_WINDOW = 10
 
 FALLBACK_MESSAGE = (
@@ -246,9 +246,10 @@ def build_prompt(docs: list, day_name: str, user_date_str: str, holiday_name: st
         "- If CONTEXT does not answer the question (fully or partly), say clearly that the "
         "documentation doesn't cover that part and suggest contacting customer support.\n"
         "- Only help with login, password, MFA, trusted devices or account recovery.\n"
-        "- If today is a holiday and the question involves a manual review, reset or recovery, "
-        "mention that manual reviews resume the next business day and add "
-        "'(source: federal holiday API)'.\n"
+        "- If the user asks about timing, dates, holidays or when something will happen, ALWAYS "
+        "state today's holiday status from the line above. If today is a holiday, say that manual "
+        "reviews resume the next business day and add '(source: federal holiday API)'. "
+        "This holiday information is verified and may be used even if CONTEXT does not mention it.\n"
         "- Be warm and concise.\n\n"
         f"CONTEXT:\n{context_text}"
     )

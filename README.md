@@ -63,7 +63,7 @@ It also runs on demand in GitHub Actions (**Actions → Faithfulness eval**, nee
 
 ```bash
 pip install -r requirements-dev.txt
-pytest                     # 34 unit tests, LLM / vector store / MCP mocked — runs in CI on every push
+pytest                     # 35 unit tests, LLM / vector store / MCP mocked — runs in CI on every push
 pytest -m integration      # live API + SLA tests against a running server
 ```
 
@@ -82,7 +82,7 @@ Unit tests cover routing (including regressions for the misrouted questions), th
 | `CHROMA_PATH` | ChromaDB persistence path | `./chroma_db` (`/app/chroma_db` in Docker) |
 | `DATA_PATH` | PDF knowledge base directory | `./data` |
 | `RETRIEVAL_K` | Chunks retrieved per question | `4` |
-| `RELEVANCE_THRESHOLD` | Min relevance for questions without security keywords | `0.30` |
+| `RELEVANCE_THRESHOLD` | Min relevance for questions without security keywords (calibrated with the eval: off-topic ≤ 0.00, answerable 0.08–0.39) | `0.15` |
 
 ## 🔌 API
 

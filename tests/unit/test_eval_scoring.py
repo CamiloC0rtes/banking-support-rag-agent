@@ -75,6 +75,14 @@ async def test_fallback_case(monkeypatch):
     assert r["passed"]
 
 
+async def test_gap_admissions_from_judge_are_ignored(monkeypatch):
+    monkeypatch.setattr(run_eval, "blossom_app", FakeApp(grounded_out("The documentation doesn't cover that part.")))
+    noisy = Judgement(grounded=False, unsupported_claims=["The documentation doesn't cover that part."])
+    r = await run_case({"id": "gap", "prompt": "q", "expect": "gap"}, FakeJudge(noisy))
+    assert r["passed"]
+    assert r["unsupported_claims"] == []
+
+
 @pytest.mark.parametrize("text", [
     "The documentation doesn't cover password lockouts, so please contact customer support.",
     "Our security protocol does not specify a self-service unlock.",

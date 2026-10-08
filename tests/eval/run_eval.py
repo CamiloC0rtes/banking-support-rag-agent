@@ -113,10 +113,12 @@ async def run_case(case: dict, judge_llm) -> dict:
         if re.search(pattern, body, re.I):
             failures.append(f"known hallucination /{pattern}/")
 
-    verdict = None
+    unsupported = []
     if not is_fallback and out.get("grounded"):
         verdict = await judge(judge_llm, answer, out.get("contexts", []), out.get("holiday_name"))
-        if not verdict.grounded:
+        # Judges sometimes list "the docs don't cover X" as a claim; that's the desired behavior.
+        unsupported = [c for c in verdict.unsupported_claims if not GAP_SIGNAL.search(c)]
+        if unsupported:
             failures.append("judge: unsupported claims")
 
     return {
@@ -125,9 +127,10 @@ async def run_case(case: dict, judge_llm) -> dict:
         "expect": expect,
         "passed": not failures,
         "failures": failures,
-        "unsupported_claims": verdict.unsupported_claims if verdict else [],
+        "unsupported_claims": unsupported,
         "top_score": max(out.get("scores") or [0.0]),
         "latency_s": round(latency, 3),
+        "holiday": out.get("holiday_name"),
         "answer": answer,
     }
 
@@ -156,6 +159,13 @@ def write_report(results: list[dict], path_md: Path, path_json: Path):
     for r in results:
         notes = "; ".join(r["failures"] + [f"unsupported: {c}" for c in r["unsupported_claims"]])
         lines.append(f"| {r['id']} | {r['expect']} | {r['top_score']:.2f} | {'✅' if r['passed'] else '❌'} | {notes} |")
+
+    failed = [r for r in results if not r["passed"]]
+    if failed:
+        lines += ["", "## Failed answers", ""]
+        for r in failed:
+            answer = strip_footer(r["answer"]).replace("\n", " ")
+            lines += [f"**{r['id']}** (holiday: {r['holiday'] or 'none'})", "", f"> {answer}", ""]
     path_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return summary
 
