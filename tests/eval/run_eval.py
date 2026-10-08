@@ -41,7 +41,7 @@ from src.database import run_ingestion  # noqa: E402
 HERE = Path(__file__).parent
 GAP_SIGNAL = re.compile(
     r"(doesn't|does not|don't|do not) (cover|include|have|mention|specify|contain)|not (covered|specified|available)"
-    r"|no (information|details)|contact (blossom )?(customer )?support",
+    r"|no (information|details)|contact(ing)? (blossom )?(customer )?support|reach(ing)? out to (customer )?support",
     re.I,
 )
 
@@ -52,12 +52,12 @@ class Judgement(BaseModel):
 
 
 JUDGE_PROMPT = """You are a strict evaluator for a banking support RAG assistant.
-Decide whether every factual claim in ANSWER is supported by CONTEXT.
-Ignore greetings, empathy, generic advice to contact support, and the sources footer.
+Decide whether every factual claim in ANSWER is supported by CONTEXT or by VERIFIED SYSTEM FACTS.
+Ignore greetings, empathy, advice to contact customer support, and the sources footer.
 Statements that the documentation does not cover something are NOT unsupported claims.
-Holiday statements are supported if HOLIDAY is not 'none'.
 
-HOLIDAY: {holiday}
+VERIFIED SYSTEM FACTS:
+{system_facts}
 
 CONTEXT:
 {context}
@@ -75,9 +75,17 @@ def strip_footer(answer: str) -> str:
     return answer.split("\n\n—\nSources:")[0]
 
 
+def system_facts(holiday) -> str:
+    """Facts the agent legitimately gets from outside the PDF (MCP tool + business rules)."""
+    if holiday:
+        return (f"- Today is a US federal holiday: {holiday} (from the federal holiday API).\n"
+                "- Bank rule: on holidays, manual reviews resume the next business day.")
+    return "- Today is not a US federal holiday (from the federal holiday API)."
+
+
 async def judge(llm, answer: str, contexts: list[str], holiday) -> Judgement:
     prompt = JUDGE_PROMPT.format(
-        holiday=holiday or "none",
+        system_facts=system_facts(holiday),
         context="\n---\n".join(contexts) or "(empty)",
         answer=strip_footer(answer),
     )

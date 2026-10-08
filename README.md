@@ -63,7 +63,7 @@ It also runs on demand in GitHub Actions (**Actions → Faithfulness eval**, nee
 
 ```bash
 pip install -r requirements-dev.txt
-pytest                     # 42 unit tests, LLM / vector store / MCP mocked — runs in CI on every push
+pytest                     # 44 unit tests, LLM / vector store / MCP mocked — runs in CI on every push
 pytest -m integration      # live API + SLA tests against a running server
 ```
 

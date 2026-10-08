@@ -86,6 +86,13 @@ async def test_gap_admissions_from_judge_are_ignored(monkeypatch):
 @pytest.mark.parametrize("text", [
     "The documentation doesn't cover password lockouts, so please contact customer support.",
     "Our security protocol does not specify a self-service unlock.",
+    "I suggest contacting customer support for assistance with your MFA codes after changing phones.",
 ])
 def test_gap_signal(text):
     assert GAP_SIGNAL.search(text)
+
+
+def test_judge_receives_holiday_as_verified_fact():
+    assert "Martin Luther King" in run_eval.system_facts("Martin Luther King, Jr. Day")
+    assert "next business day" in run_eval.system_facts("Martin Luther King, Jr. Day")
+    assert "not a US federal holiday" in run_eval.system_facts(None)
