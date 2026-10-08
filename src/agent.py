@@ -20,6 +20,7 @@ import functools
 import logging
 import os
 import re
+import sys
 import time
 from datetime import datetime
 from typing import TypedDict
@@ -98,19 +99,30 @@ def timed(func):
 # -------------------------
 # MCP / Holiday Utilities
 # -------------------------
-async def call_mcp_holidays() -> str:
-    """Fetches federal holiday data via MCP Server."""
+_HOLIDAY_LINE = re.compile(r"^\d{4}-\d{2}-\d{2}:", re.M)
+
+
+def holidays_valid(text: str | None) -> bool:
+    """True only for real 'YYYY-MM-DD: name' data (not errors or empty payloads)."""
+    return bool(text and _HOLIDAY_LINE.search(text))
+
+
+async def call_mcp_holidays(year: int | None = None) -> str | None:
+    """Fetch federal holidays via the MCP server. Returns None on any failure."""
+    year = year or datetime.now().year
     try:
-        params = StdioServerParameters(command="python", args=["src/mcp_server.py"])
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                year = datetime.now().year
-                result = await session.call_tool("get_federal_holidays", arguments={"year": year})
-                return result.content[0].text
+        params = StdioServerParameters(command=sys.executable, args=["src/mcp_server.py"])
+        async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+            await session.initialize()
+            result = await session.call_tool("get_federal_holidays", arguments={"year": year})
+            text = result.content[0].text
     except Exception as e:
         logger.error(f"MCP Connection Error: {e}")
-        return "[]"
+        return None
+    if not holidays_valid(text):
+        logger.error(f"MCP returned no holiday data: {text[:120]!r}")
+        return None
+    return text
 
 
 def parse_holiday(holidays_text: str, user_date_str: str) -> str | None:
@@ -124,19 +136,20 @@ def parse_holiday(holidays_text: str, user_date_str: str) -> str | None:
 
 
 async def fetch_holiday_name(user_date_str: str) -> str | None:
-    """Returns the holiday name for the given date (cached MCP lookup)."""
+    """Holiday name for the date, using a per-year cache. Failures are not cached,
+    so a transient MCP/API error is retried on the next request."""
     global _CACHED_HOLIDAYS
-    if not _CACHED_HOLIDAYS:
-        try:
-            _CACHED_HOLIDAYS = await call_mcp_holidays()
-        except Exception as e:
-            logger.error(f"Error fetching holidays: {e}")
+    year = int(user_date_str[:4])
+    if not (holidays_valid(_CACHED_HOLIDAYS) and f"{year}-" in _CACHED_HOLIDAYS):
+        fetched = await call_mcp_holidays(year)
+        if fetched is None:
             return None
-    try:
-        return parse_holiday(_CACHED_HOLIDAYS, user_date_str)
-    except Exception as e:
-        logger.error(f"Error parsing holidays: {e}")
-        return None
+        _CACHED_HOLIDAYS = fetched
+    return parse_holiday(_CACHED_HOLIDAYS, user_date_str)
+
+
+def mcp_ready() -> bool:
+    return holidays_valid(_CACHED_HOLIDAYS)
 
 
 # -------------------------

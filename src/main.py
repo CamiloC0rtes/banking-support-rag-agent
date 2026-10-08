@@ -9,8 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-import src.agent as agent_module
-from src.agent import blossom_app, call_mcp_holidays
+from src.agent import blossom_app, fetch_holiday_name, mcp_ready
 from src.database import run_ingestion
 
 # --- Logging Configuration ---
@@ -45,7 +44,7 @@ async def lifespan(app: FastAPI):
         run_ingestion(force_rebuild=False)
         
         # 2. Global MCP cache hydration (source: federal holiday API)
-        agent_module._CACHED_HOLIDAYS = await call_mcp_holidays()
+        await fetch_holiday_name(datetime.date.today().strftime("%Y-%m-%d"))
         
         # 3. Agent warm-up to mitigate cold-start latency
         await blossom_app.ainvoke({
@@ -85,7 +84,7 @@ async def health():
     return {
         "status": "healthy", 
         "timestamp": datetime.datetime.now().isoformat(),
-        "mcp_ready": agent_module._CACHED_HOLIDAYS is not None,
+        "mcp_ready": mcp_ready(),
         "current_date": datetime.date.today().strftime("%Y-%m-%d") # source: federal holiday API
     }
 

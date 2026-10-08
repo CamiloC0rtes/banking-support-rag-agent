@@ -8,6 +8,7 @@ pypdf
 langchain-text-splitters
 langgraph
 langgraph-checkpoint-sqlite
-mcp
+mcp>=1.2,<2
+requests
 tenacity
 python-dotenv
