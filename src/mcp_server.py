@@ -1,6 +1,6 @@
-from mcp.server.fastmcp import FastMCP
+
 import requests
-from datetime import datetime
+from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("BlossomTools")
 
@@ -11,7 +11,7 @@ def get_federal_holidays(year: int = 2026) -> str:
     try:
         r = requests.get(url, timeout=3)
         return "\n".join([f"{h['date']}: {h['name']}" for h in r.json()])
-    except:
+    except Exception:
         return "Holiday data currently unavailable."
 
 if __name__ == "__main__":

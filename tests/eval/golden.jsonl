@@ -1,0 +1,16 @@
+{"id": "lockout_self_unlock", "prompt": "I got locked out after entering the wrong password. Can I unlock myself?", "expect": "gap", "must_not": ["forgot password"], "note": "The PDF has no password-lockout procedure (only MFA suspension after 5 expired codes)."}
+{"id": "password_rules", "prompt": "What are the password rules? Can you list them quickly?", "expect": "answer", "must_include": ["\\b12\\b", "\\b128\\b", "three", "180", "\\b60\\b"]}
+{"id": "repeated_codes", "prompt": "Why do I keep getting verification codes when I log in?", "expect": "answer", "must_include": ["30 days|500 miles"]}
+{"id": "remember_device", "prompt": "How often does 'remember this device' expire?", "expect": "answer", "must_include": ["30 days"], "note": "Regression: previously answered 'until you clear cookies' with no source."}
+{"id": "username_recovery", "prompt": "I forgot my username — how do I recover it?", "expect": "answer", "must_include": ["hint", "last (4|four)", "zip", "60 seconds"]}
+{"id": "changed_phone", "prompt": "I changed phones and now my codes don't work. What should I do?", "expect": "gap", "must_not": ["reinstall", "backup code"], "note": "Previously invented backup codes and reinstall steps."}
+{"id": "password_reset", "prompt": "Please help me reset my password safely.", "expect": "gap", "must_not": ["forgot password\\??\"? (link|option|button)"], "note": "The PDF has password rules but no reset procedure."}
+{"id": "phone_banking_unlock", "prompt": "Can I unlock a phone-banking user without calling support?", "expect": "gap"}
+{"id": "signup_stuck", "prompt": "I signed up, but I'm stuck — where do I finish my setup?", "expect": "gap"}
+{"id": "holiday_reset", "prompt": "If I start a password reset on a federal holiday, when should I expect the next step?", "user_date": "2026-01-19", "expect": "answer", "must_include": ["holiday|martin luther", "next business day"]}
+{"id": "token_code_ttl", "prompt": "How long are the codes from the token app valid?", "expect": "answer", "must_include": ["30 seconds"]}
+{"id": "expired_code_suspension", "prompt": "What happens if I enter an expired MFA code several times?", "expect": "answer", "must_include": ["\\b5\\b|five", "1 hour|one hour"]}
+{"id": "mfa_methods", "prompt": "Which MFA methods does Blossom support?", "expect": "answer", "must_include": ["token app", "sms", "yubikey|hardware"]}
+{"id": "admin_password_expiry", "prompt": "How often do administrators have to change their password?", "expect": "answer", "must_include": ["60 days"]}
+{"id": "off_topic_savings", "prompt": "I want to open a new savings account", "expect": "fallback"}
+{"id": "off_topic_mortgage", "prompt": "What's your current mortgage rate?", "expect": "fallback"}

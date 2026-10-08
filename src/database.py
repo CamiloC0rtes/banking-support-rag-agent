@@ -1,20 +1,22 @@
-import os
 import glob
 import logging
+import os
+
 import chromadb
 from langchain_chroma import Chroma
+from langchain_community.document_loaders import PyPDFLoader
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFLoader
 
 logger = logging.getLogger("blossom_agent.database")
 
 # ------------------------------------------------------------------
 # PATH CONFIGURATION
 # ------------------------------------------------------------------
-BASE_DIR = os.getcwd()                     
-DATA_PATH = os.path.join(BASE_DIR, "data") 
-CHROMA_PATH = "/tmp/chroma_db"            
+BASE_DIR = os.getcwd()
+DATA_PATH = os.getenv("DATA_PATH", os.path.join(BASE_DIR, "data"))
+CHROMA_PATH = os.getenv("CHROMA_PATH", os.path.join(BASE_DIR, "chroma_db"))
+RETRIEVAL_K = int(os.getenv("RETRIEVAL_K", "4"))
 
 os.makedirs(CHROMA_PATH, exist_ok=True)
 
@@ -154,11 +156,13 @@ def run_ingestion(force_rebuild: bool = False) -> bool:
 # ------------------------------------------------------------------
 # RETRIEVER
 # ------------------------------------------------------------------
-def get_active_retriever():
-    global _RETRIEVER_INSTANCE
+_VECTOR_STORE = None
 
-    if _RETRIEVER_INSTANCE is None:
-        vector_db = Chroma(
+
+def get_vector_store() -> Chroma:
+    global _VECTOR_STORE
+    if _VECTOR_STORE is None:
+        _VECTOR_STORE = Chroma(
             client=get_chroma_client(),
             collection_name="blossom_security_v1",
             embedding_function=OpenAIEmbeddings(
@@ -168,8 +172,20 @@ def get_active_retriever():
                 )
             ),
         )
-        _RETRIEVER_INSTANCE = vector_db.as_retriever(
-            search_kwargs={"k": 3}
+    return _VECTOR_STORE
+
+
+def get_active_retriever():
+    global _RETRIEVER_INSTANCE
+
+    if _RETRIEVER_INSTANCE is None:
+        _RETRIEVER_INSTANCE = get_vector_store().as_retriever(
+            search_kwargs={"k": RETRIEVAL_K}
         )
 
     return _RETRIEVER_INSTANCE
+
+
+async def search_with_scores(query: str, k: int = RETRIEVAL_K) -> list:
+    """Return [(Document, relevance_score)] sorted by relevance (0..1, higher is better)."""
+    return await get_vector_store().asimilarity_search_with_relevance_scores(query, k=k)

@@ -1,6 +1,9 @@
-import pytest
-import httpx
 import time
+
+import httpx
+import pytest
+
+pytestmark = pytest.mark.integration
 
 API_URL = "http://localhost:8000/chat"
 SLA_THRESHOLD = 5.0 

@@ -1,5 +1,8 @@
-import sys, os
+import os
+import sys
+
 from dotenv import load_dotenv
+
 sys.path.append(os.getcwd())
 from src.database import run_ingestion
 

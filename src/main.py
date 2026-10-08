@@ -1,12 +1,16 @@
-import time, json, datetime, logging, os
-from fastapi import FastAPI, Request
+import datetime
+import json
+import logging
+import os
+import time
 from contextlib import asynccontextmanager
-from fastapi.responses import StreamingResponse, FileResponse
-from pydantic import BaseModel, Field
-from typing import List, Optional
 
-from src.agent import blossom_app, stream_llm_response, call_mcp_holidays
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel, Field
+
 import src.agent as agent_module
+from src.agent import blossom_app, call_mcp_holidays
 from src.database import run_ingestion
 
 # --- Logging Configuration ---
@@ -15,19 +19,22 @@ logger = logging.getLogger("blossom_main")
 
 class ChatRequest(BaseModel):
     message: str
-    session_id: Optional[str] = None
-    history: List[dict] = []
-    topic: Optional[str] = None
-    user_date: Optional[str] = Field(default_factory=lambda: datetime.date.today().strftime("%Y-%m-%d"))
+    session_id: str | None = None
+    history: list[dict] = []
+    topic: str | None = None
+    user_date: str | None = Field(default_factory=lambda: datetime.date.today().strftime("%Y-%m-%d"))
     temperature: float = 0.2
     top_p: float = 0.9
 
 class ChatResponse(BaseModel):
     answer: str
     session_id: str
-    topic: Optional[str]
-    history: List[dict]
+    topic: str | None
+    history: list[dict]
     timing_ms: float
+    grounded: bool = False
+    sources: list[dict] = []
+    node_latency_ms: dict = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -93,13 +100,40 @@ async def chat_endpoint(req: ChatRequest):
         "session_id": req.session_id or f"sess_{int(time.time())}",
         "topic": result.get("topic"),
         "history": result.get("history", []),
-        "timing_ms": round(duration_ms, 2)
+        "timing_ms": round(duration_ms, 2),
+        "grounded": result.get("grounded", False),
+        "sources": result.get("sources", []),
+        "node_latency_ms": result.get("node_latency_ms", {}),
     }
+
+
+STREAMING_NODES = {"generate", "greet", "farewell"}
+
+
 @app.get("/chat/stream")
-async def chat_stream(message: str):
-    """SSE endpoint for progressive UI rendering."""
+async def chat_stream(message: str, user_date: str | None = None):
+    """SSE endpoint. Runs the same graph as /chat (routing, RAG, grounding gate)
+    and streams LLM tokens as they are produced."""
+    state = {
+        "message": message,
+        "history": [],
+        "user_date": user_date or datetime.date.today().strftime("%Y-%m-%d"),
+    }
+
     async def event_generator():
-        async for token in stream_llm_response("You are Blossom.", [], message):
-            yield f"data: {json.dumps({'token': token})}\n\n"
+        final, streamed = {}, False
+        async for mode, chunk in blossom_app.astream(state, stream_mode=["messages", "values"]):
+            if mode == "messages":
+                msg, meta = chunk
+                if meta.get("langgraph_node") in STREAMING_NODES and msg.content:
+                    streamed = True
+                    yield f"data: {json.dumps({'token': msg.content})}\n\n"
+            else:
+                final = chunk
+        if not streamed and final.get("answer"):
+            # fallback is a fixed template, not an LLM call
+            yield f"data: {json.dumps({'token': final['answer']})}\n\n"
+        yield f"data: {json.dumps({'sources': final.get('sources', []), 'grounded': final.get('grounded', False)})}\n\n"
         yield "data: [DONE]\n\n"
+
     return StreamingResponse(event_generator(), media_type="text/event-stream")

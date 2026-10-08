@@ -2,3 +2,7 @@ chroma_db/
 __pycache__/
 .env
 venv/
+eval_report.md
+eval_report.json
+.pytest_cache/
+.ruff_cache/

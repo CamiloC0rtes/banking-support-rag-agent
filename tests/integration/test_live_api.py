@@ -1,10 +1,13 @@
-import pytest
-import asyncio
-import httpx
-import time
 import json
-from src.agent import call_mcp_holidays, blossom_app
+import time
+
+import httpx
+import pytest
+
+from src.agent import blossom_app, call_mcp_holidays
 from src.database import get_active_retriever, run_ingestion
+
+pytestmark = pytest.mark.integration
 
 API_URL = "http://localhost:8000/chat"
 SLA_THRESHOLD = 5.0

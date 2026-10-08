@@ -1,149 +1,125 @@
 # 🌸 Blossom Banking AI Agent
 
-Blossom Banking AI Agent is a **production-grade, agentic service** designed to assist Blossom Banking members and internal support staff with login and security-related questions.
+[![CI](https://github.com/CamiloC0rtes/banking-support-rag-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/CamiloC0rtes/banking-support-rag-agent/actions/workflows/ci.yml)
 
-The system is built using a **Retrieval-Augmented Generation (RAG)** architecture, ensuring all responses are grounded in official internal documentation, safe, and compliant with banking-grade reliability requirements.
+A RAG support agent for a (fictional) bank's login and security questions — passwords, MFA, trusted devices and account recovery. Every policy answer is grounded in the bank's PDF documentation and cited; when the documentation doesn't cover a question, the agent says so instead of guessing.
+
+**Stack:** FastAPI · LangGraph · ChromaDB · OpenAI · MCP (federal-holiday tool) · Docker · GitHub Actions
 
 ---
 
-## 🏗 System Architecture
+## 🏗 Architecture
 
-The architecture emphasizes **modularity, observability, and resilience**:
-
-* **FastAPI Layer** — Async API layer with SSE support
-* **LangGraph Agent** — Orchestrates reasoning and tool invocation
-* **ChromaDB Vector Store** — Persistent PDF-grounded knowledge
-* **MCP Integration** — External context (federal holidays, weekend awareness)
-
-### Architecture Diagram
+The agent is an explicit LangGraph state machine. Each node has one job and its latency is reported per request.
 
 ```mermaid
 graph TD
-    A[Client / UI] -->|HTTP / SSE| B[FastAPI Service]
-    B --> C{LangGraph Agent}
-    C --> D[Vector Retriever]
-    C --> E[MCP Holiday Tool]
-    D --> F[(ChromaDB)]
-    E --> G[External API]
+    S([request]) --> R[route]
+    R -- greeting --> G[greet]
+    R -- farewell --> F[farewell]
+    R -- query --> RT[retrieve<br/>vector search + MCP holiday lookup]
+    RT -- grounded --> GEN[generate<br/>answer only from retrieved chunks + citations]
+    RT -- not grounded --> FB[fallback<br/>fixed safe message, no LLM]
+    G --> E([response])
+    F --> E
+    GEN --> E
+    FB --> E
 ```
 
----
+| Node | What it does |
+|---|---|
+| `route` | Detects pure greetings/farewells (a greeting followed by a real question is *not* small talk) and resolves follow-ups like "give me the steps" to the previous question. |
+| `retrieve` | Top-k similarity search with relevance scores, in parallel with the MCP holiday lookup. Marks the question in scope if it matches a security term **or** the best chunk clears `RELEVANCE_THRESHOLD`. |
+| `generate` | Answers strictly from the retrieved chunks, admits gaps, cites every source page used. |
+| `fallback` | Fixed template. The LLM is never asked to improvise when there is no grounding. |
 
-## ⚙️ Configuration (Environment Variables)
+## 🛡 Hallucination fixes (v2)
 
-Create a `.env` file or configure these variables in Railway / Docker:
+The first version scored well on latency but the post-deploy log ([`docs/baseline_postdeploy_metrics.json`](docs/baseline_postdeploy_metrics.json)) showed ungrounded answers:
 
-| Variable               | Description                   | Default                  |
-| ---------------------- | ----------------------------- | ------------------------ |
-| `OPENAI_API_KEY`       | OpenAI API Key (**required**) | —                        |
-| `CHAT_MODEL_NAME`      | Agent reasoning model         | `gpt-4o-mini`            |
-| `EMBEDDING_MODEL_NAME` | Embedding model               | `text-embedding-3-small` |
-| `CHROMA_PATH`          | ChromaDB persistence path     | `/app/chroma_db`         |
-| `DATA_PATH`            | PDF knowledge base directory  | `/app/data`              |
-| `PORT`                 | API service port              | `8000`                   |
+- **3 of 10 answers had no source.** Scope was decided by exact keywords, so "remember **this** device" and "**codes**" didn't match and went to an out-of-scope path that called the LLM *without context and without forbidding an answer*. Result: "remember this device lasts until you clear your cookies" — the policy says **30 days**.
+- **Cited answers still invented steps** (a "Forgot Password" link, backup codes, reinstalling the app) that are not in the documentation.
+- `/chat/stream` bypassed the agent entirely (no retrieval).
 
----
+v2 replaces keyword-only scoping with relevance scores + stemmed patterns, makes the no-grounding path a fixed message, tightens the generation prompt, routes streaming through the same graph, and adds the evaluation below so regressions are caught.
 
-## 🛡 Knowledge Base & Safety
+## 📏 Evaluation
 
-### Source Fidelity
+`tests/eval/` contains a golden set of 16 questions built from the policy PDF, each labeled with the expected behavior:
 
-Only PDFs located in `/data` and explicitly whitelisted are ingested.
+- **answer** — must include the documented facts (e.g. `30 days`, `60 seconds`) and cite sources
+- **gap** — in scope but not covered by the docs: must admit it, and must not repeat known hallucinations
+- **fallback** — off topic: must return the safe fallback
 
-### Metadata Enrichment
-
-Each vector chunk contains:
-
-* Source filename
-* Page number
-* Semantic tags
-
-### Anti-Hallucination Policy
-
-**Retrieve-or-Fallback** strategy:
-
-* Grounded content → answer with citations
-* No grounding → safe redirection to official support
-
-### Temporal Awareness
-
-The agent is aware of:
-
-* Current date
-* Federal holidays
-* Weekend support limitations
-
-(via MCP tool)
-
----
-
-## 🚀 Deployment & Resilience
-
-### Railway-Ready Design
-
-The system is hardened for Railway’s ephemeral filesystem and avoids common persistence failures such as:
-
-```
-sqlite3.Error: (code: 14) unable to open database file
-```
-
-### Key Strategies
-
-* Persistent volume mounted at `/app/chroma_db`
-* Non-root Docker execution with explicit permissions
-* Lazy vector initialization during startup
-* Warm-up invocation to remove cold-start latency
-
----
-
-## 🔌 API Endpoints
-
-| Endpoint       | Method | Description                          |
-| -------------- | ------ | ------------------------------------ |
-| `/chat`        | POST   | Standard synchronous chat            |
-| `/chat/stream` | GET    | Server-Sent Events (token streaming) |
-| `/health`      | GET    | Liveness & readiness probe           |
-
----
-
-## 📈 Observability & SLA
-
-The service exposes real-time telemetry via HTTP headers:
-
-* `X-Process-Time-Ms` — Request processing duration
-* `X-SLA-Status`
-
-  * `MET` if p95 ≤ 5s
-  * `BREACHED` otherwise
-
-This enables straightforward integration with external monitoring systems.
-
----
-
-## 💻 Getting Started
-
-### Local Development
+Every non-fallback answer is also checked by an **LLM judge** that lists claims not supported by the retrieved chunks. The report includes p95 latency and the top retrieval score per question (used to calibrate `RELEVANCE_THRESHOLD`).
 
 ```bash
-export OPENAI_API_KEY=your_secret_key
-export PYTHONPATH=.
-
-uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+python -m tests.eval.run_eval --min-pass 0.9   # writes eval_report.md / .json
 ```
 
-### Docker
+It also runs on demand in GitHub Actions (**Actions → Faithfulness eval**, needs an `OPENAI_API_KEY` secret) and publishes the report as the job summary.
+
+## 🧪 Tests
 
 ```bash
-docker build -t blossom-agent .
-docker run -p 8000:8000 --env-file .env blossom-agent
+pip install -r requirements-dev.txt
+pytest                     # 34 unit tests, LLM / vector store / MCP mocked — runs in CI on every push
+pytest -m integration      # live API + SLA tests against a running server
 ```
 
+Unit tests cover routing (including regressions for the misrouted questions), the grounding gate, fallback without LLM calls, follow-up resolution, graceful degradation when retrieval fails, and the eval's own scoring.
+
 ---
+
+## ⚙️ Configuration
+
+| Variable | Description | Default |
+|---|---|---|
+| `OPENAI_API_KEY` | OpenAI API key (**required**) | — |
+| `CHAT_MODEL_NAME` | Answer model | `gpt-4o-mini` |
+| `EMBEDDING_MODEL_NAME` | Embedding model | `text-embedding-3-small` |
+| `JUDGE_MODEL_NAME` | Eval judge model | `gpt-4o-mini` |
+| `CHROMA_PATH` | ChromaDB persistence path | `./chroma_db` (`/app/chroma_db` in Docker) |
+| `DATA_PATH` | PDF knowledge base directory | `./data` |
+| `RETRIEVAL_K` | Chunks retrieved per question | `4` |
+| `RELEVANCE_THRESHOLD` | Min relevance for questions without security keywords | `0.30` |
+
+## 🔌 API
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/chat` | POST | Full response with `answer`, `sources`, `grounded` and per-node `node_latency_ms` |
+| `/chat/stream` | GET | Server-Sent Events: same graph, streamed tokens, then sources |
+| `/health` | GET | Liveness/readiness, MCP status |
+
+Every response carries `X-Process-Time-Ms` and `X-SLA-Status` (`MET` under 5 s) headers.
+
+## 🗂 Knowledge base
+
+Only whitelisted PDFs in `data/` are ingested. Chunks carry source filename, page number and topic tags, which drive the citations. Holiday awareness comes from an MCP server wrapping a public federal-holiday API, so answers about manual reviews account for weekends and holidays.
+
+## 💻 Running it
+
+```bash
+cp .env.example .env        # add your OPENAI_API_KEY
+pip install -r requirements.txt
+python scripts/ingest.py
+uvicorn src.main:app --reload --port 8000
+```
+
+Docker:
+
+```bash
+docker compose up --build
+```
+
+The container runs as a non-root user with ChromaDB on a mounted volume, a lazy vector-store initialization and a warm-up call to avoid cold-start latency.
 
 ## 🛠 Troubleshooting
 
-| Symptom               | Cause                      | Resolution                                 |
-| --------------------- | -------------------------- | ------------------------------------------ |
-| `ChromaDB (code: 14)` | Permission or volume issue | Verify volume mount and Docker permissions |
-| `MCP Ready: false`    | MCP server failure         | Check logs and dependencies                |
-| `401 Unauthorized`    | Invalid API key            | Verify `OPENAI_API_KEY`                    |
+| Symptom | Cause | Resolution |
+|---|---|---|
+| `ChromaDB (code: 14)` | Permissions or volume | Check the `chroma_db` volume mount and container user |
+| `mcp_ready: false` | MCP server failed | Check logs; the agent still answers, without holiday awareness |
+| Too many fallbacks | Threshold too strict | Lower `RELEVANCE_THRESHOLD` using the eval's top-score column |
+| `401 Unauthorized` | Invalid API key | Verify `OPENAI_API_KEY` |
