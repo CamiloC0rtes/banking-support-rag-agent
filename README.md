@@ -57,6 +57,16 @@ Every non-fallback answer is also checked by an **LLM judge** that lists claims 
 python -m tests.eval.run_eval --min-pass 0.9   # writes eval_report.md / .json
 ```
 
+**Latest results (gpt-4o-mini, 16 cases):**
+
+| | Before (v1) | After (v2) |
+|---|---|---|
+| Answers without a source | 3 / 10 | 0 |
+| Golden-set pass rate | — | **16 / 16** |
+| p95 latency | 4.20 s | **1.89 s** |
+
+Running the eval also surfaced a bug the unit tests had missed: the unpinned `mcp` package had moved to 2.x, which removed `FastMCP`, so the holiday server crashed on start-up and the agent silently lost holiday awareness while `/health` still reported it as ready. Fixed by pinning `mcp<2`, not caching failures, and adding a test that starts the MCP server over stdio.
+
 It also runs on demand in GitHub Actions (**Actions → Faithfulness eval**, needs an `OPENAI_API_KEY` secret) and publishes the report as the job summary.
 
 ## 🧪 Tests
